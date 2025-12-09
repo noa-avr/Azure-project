@@ -39,28 +39,52 @@ def create_client():
 
     return client, sub_id
 
+# Getting the app list of the subscription
 
-    if __name__ == "__main__":
-        print("---Starting Azure checker---")
+def get_app_list(client):
+    
+    app_data = []
 
-        client, sub_id = create_client()
+    try:
+        all_apps = client.web_apps.list()
+
+        #DEBUG:
+        app_count = sum(1 for _ in all_apps)
+        print(f"Found {app_count} apps in the subscription")
         
-        if app_list:
-            print("\n" + "="*80)
-            print("דו\"ח גרסאות App Service")
-            print("="*80)
+        all_apps = client.web_apps.list()
 
-        else:
-            # זה הבלוק החדש שיוסיף דיווח ברור
-            print("\n" + "#"*80)
-            print("ALERT: סריקה הסתיימה ללא תוצאות.")
-            print("אחת מהסיבות הבאות ככל הנראה גרמה לכך:")
-            print("1. אין לך משאבי App Service במנוי הפעיל.")
-            print("2. האימות נכשל (הרשאות, או שגיאה ב-az login).")
-            print("#"*80 + "\n")
+        for app in all_apps:
+            app_data.append({
+                "name": app.name,
+                "resource_group": app.resource_group,
+                "runtime": app.runtime,
+            })
 
-        printf("Ready to scan App Services using client: {client}")
+    except Exception as e:
+        print(f"Error: Failed to retrieve App List. Please ensure you have the necessary permissions. Details: {e}")
+        return []
 
+    return app_data
+
+
+if __name__ == "__main__":
+    print("---Starting Azure checker---")
+
+    client, sub_id = create_client()
+
+    app_list = get_app_list(client)
+    
+    if app_list:
+        print("\n" + "="*80)
+        print("דו\"ח גרסאות App Service")
+        print("="*80)
+
+    else:
+        print("\n" + "#"*80)
+        print("ALERT: סריקה הסתיימה ללא תוצאות. (No App Services Found)")
+        print(f"המנוי הפעיל ({sub_id}) לא מכיל משאבי App Service.")
+        print("#"*80 + "\n")
 
     
 
