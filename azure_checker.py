@@ -2,6 +2,7 @@ from azure.identity import AzureCliCredential
 from azure.mgmt.web import WebSiteManagementClient
 import subprocess
 import sys
+import csv
 
 
 # ----------------------------------------------------
@@ -143,6 +144,41 @@ def get_app_service_data(client):
     return app_data
 
 
+# ----------------------------------------------------
+# Save the report to a CSV file
+# ----------------------------------------------------
+def save_report_to_csv(data_list):
+    """Save the list of application data to a CSV file."""
+    
+    file_name = "app_service_report.csv"
+    
+    # If the list is empty, there is nothing to save
+    if not data_list:
+        print(f"INFO: No data to save. Skipping save to {file_name}")
+        return
+
+    # The keys (Fields) of our dictionary will be used as the column headers in the CSV
+    field_names = ["Name", "Resource Group", "Current Runtime", "Status", "Recommendation"]
+
+    try:
+        # Open the file for writing (w)
+        # newline='' prevents extra spaces between lines in CSV files
+        with open(file_name, 'w', newline='', encoding='utf-8') as csvfile:
+            # Create an object that knows how to write dictionaries into the CSV
+            writer = csv.DictWriter(csvfile, fieldnames=field_names)
+            
+            # Write the column headers in the first row
+            writer.writeheader()
+            
+            # Write all the rows from our list
+            writer.writerows(data_list)
+        
+            print(f"\n✅ Report saved successfully to file: {file_name}")
+        
+    except Exception as e:
+        print(f"ERROR: Failed to save the CSV. Details: {e}")
+
+
 if __name__ == "__main__":
     print("---Starting Azure checker---")
 
@@ -170,6 +206,11 @@ if __name__ == "__main__":
         print("ALERT: Scan completed without results. (No App Services Found)")
         print(f"The active subscription ({sub_id}) does not contain any App Service resources.")
         print("#"*80 + "\n")
+
+    # *************************************************************
+    # Save the report to a CSV file
+    # *************************************************************
+    save_report_to_csv(app_list)
     
 
 
