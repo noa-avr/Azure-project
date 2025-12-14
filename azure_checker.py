@@ -3,6 +3,23 @@ from azure.mgmt.web import WebSiteManagementClient
 import subprocess
 import sys
 
+
+# ----------------------------------------------------
+# כללי שדרוג מומלצים (מילון נתונים ידני)
+# מפתח: גרסת Runtime מיושנת (המזהה של ה-SDK)
+# ערך: סטטוס והמלצה
+# ----------------------------------------------------
+UPGRADE_RULES = {
+    "NODE|14": {"status": "EOL Soon/Outdated", "recommendation": "Upgrade to Node 20 LTS (או 18 LTS)"},
+    "NODE|16": {"status": "Outdated", "recommendation": "Upgrade to Node 20 LTS"},
+    "DOTNETCORE|3.1": {"status": "EOL (End of Life)", "recommendation": "Upgrade to .NET 6 או 8 LTS"},
+    "PYTHON|3.8": {"status": "EOL Soon", "recommendation": "Upgrade to Python 3.11 או 3.12"},
+    "PHP|7.4": {"status": "EOL (End of Life)", "recommendation": "Upgrade to PHP 8.2 or higher"},
+    "JAVA|8": {"status": "Very Outdated", "recommendation": "Upgrade to Java 17 LTS"},
+    "ASP": {"status": "EOL/Unsupported", "recommendation": "Migrate to modern .NET"}
+}
+
+
 # Reading the subscription ID from the Azure CLI
 def get_subscription_ID():
 
