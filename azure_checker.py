@@ -3,6 +3,7 @@ from azure.mgmt.web import WebSiteManagementClient
 import subprocess
 import sys
 import csv
+from azure.mgmt.containerservice import ContainerServiceClient
 
 
 # ----------------------------------------------------
@@ -18,6 +19,23 @@ UPGRADE_RULES = {
     "PHP|7.4": {"status": "EOL (End of Life)", "recommendation": "Upgrade to PHP 8.2 or higher"},
     "JAVA|8": {"status": "Very Outdated", "recommendation": "Upgrade to Java 17 LTS"},
     "ASP": {"status": "EOL/Unsupported", "recommendation": "Migrate to modern .NET"}
+}
+
+
+# ----------------------------------------------------
+# AKS Upgrade rules dictionary
+# Key: Kubernetes version (Major.Minor)
+# Value: Status and recommendation
+# ----------------------------------------------------
+AKS_UPGRADE_RULES = {
+    # Examples of supported versions that are not EOL
+    "1.26": {"status": "EOL Soon", "recommendation": "Upgrade to Kubernetes 1.28/1.29 (or higher LTS)."},
+    "1.27": {"status": "Near EOL", "recommendation": "Upgrade to Kubernetes 1.28/1.29 (or higher LTS)."},
+    "1.28": {"status": "Supported", "recommendation": "N/A"},
+    "1.29": {"status": "Supported", "recommendation": "N/A"},
+    # Examples of versions that are no longer supported
+    "1.25": {"status": "EOL (End of Life)", "recommendation": "URGENT: Upgrade to 1.28/1.29+."},
+    "1.24": {"status": "EOL (End of Life)", "recommendation": "URGENT: Upgrade to 1.28/1.29+."},
 }
 
 
@@ -38,6 +56,32 @@ def check_runtime_status(runtime_str):
             
     # If the loop completed and no match was found, assume the version is up to date
     return "Up-to-Date / Unchecked", "N/A"
+
+
+
+# ----------------------------------------------------
+# Check the AKS Version against the rules
+# ----------------------------------------------------
+def check_aks_version(version_str):
+    """Check the AKS Kubernetes version status against the rules."""
+    
+    # Kubernetes versions are checked by Major.Minor (e.g. 1.28)
+    # We try to extract only the first two parts.
+    try:
+        parts = version_str.split('.')
+        # If a valid version is found, take only the first two parts
+        version_prefix = f"{parts[0]}.{parts[1]}" 
+    except:
+        # If the format is not valid, return Unknown
+        version_prefix = "Unknown" 
+
+    # Check against the rules
+    if version_prefix in AKS_UPGRADE_RULES:
+        rule = AKS_UPGRADE_RULES[version_prefix]
+        return version_prefix, rule['status'], rule['recommendation']
+        
+    # If no match is found, assume the version is supported and up to date
+    return version_prefix, "Supported / Unchecked", "N/A"
 
 
 
@@ -71,11 +115,13 @@ def create_client():
     credential = AzureCliCredential()
 
     # Creating the client
-    client = WebSiteManagementClient(credential, sub_id)
-
+    web_client = WebSiteManagementClient(credential, sub_id)
+    aks_client = ContainerServiceClient(credential, sub_id) # AKS client
+    
     print(f"Azure client created successfully for subscription: {sub_id}")
 
-    return client, sub_id
+    return web_client, aks_client, sub_id
+
 
 # Getting the app list of the subscription
 
@@ -145,6 +191,48 @@ def get_app_service_data(client):
 
 
 # ----------------------------------------------------
+# Get the AKS cluster list of the subscription
+# ----------------------------------------------------
+def get_aks_data(aks_client):
+    
+    aks_data = [] # List to collect the final data
+    
+    try:
+        # 1. Get the list of all AKS clusters in the subscription
+        all_clusters = aks_client.managed_clusters.list()
+        all_clusters_list = list(all_clusters)
+        cluster_count = len(all_clusters_list)
+        print(f"DEBUG: Successfully fetched list of AKS Clusters. Scanning {cluster_count} clusters...")
+        
+        # 2. Loop through each cluster found
+        for cluster in all_clusters_list:
+            
+            # Get the data directly from the cluster object
+            cluster_version = cluster.kubernetes_version
+            
+            # Apply the logic rules (check_aks_version)
+            version_prefix, status, recommendation = check_aks_version(cluster_version) 
+            
+            # Add the data to the final report
+            aks_data.append({
+                "Type": "AKS Cluster",
+                "Name": cluster.name,
+                "Resource Group": cluster.resource_group_name,
+                "Current Version": cluster_version,
+                "Status": status,
+                "Recommendation": recommendation
+            })
+            
+    except Exception as e:
+        # Error message if the list() completely fails
+        print(f"FATAL ERROR: Failed during AKS Cluster listing. Details: {e.__class__.__name__}: {e}")
+        return []
+
+    return aks_data
+    
+
+
+# ----------------------------------------------------
 # Save the report to a CSV file
 # ----------------------------------------------------
 def save_report_to_csv(data_list):
@@ -182,35 +270,48 @@ def save_report_to_csv(data_list):
 if __name__ == "__main__":
     print("---Starting Azure checker---")
 
-    client, sub_id = create_client()
+    # Call the clients
+    web_client, aks_client, sub_id = create_client() 
 
-    app_list = get_app_service_data(client)
+    # Scan the App Services
+    app_service_list = get_app_service_data(web_client)
     
-    if app_list:
-        print("\n" + "="*120)
-        print("App Service Runtime Status Report - EOL Check")
-        print("="*120)
+    # Scan the AKS Clusters
+    aks_list = get_aks_data(aks_client)
+    
+    # Combine all the results into a single list
+    combined_list = app_service_list + aks_list
+    
+    # ----------------------------------------------------
+    # Print the combined report
+    # ----------------------------------------------------
+    if combined_list:
+        print("\n" + "="*140)
+        # Change the report name to a more general one
+        print("דו\"ח אבטחת גרסאות Azure (App Service & AKS)") 
+        print("="*140)
         
-        # Print the report headers
-        print(f"{'App Name':<30} | {'Runtime':<20} | {'Status':<30} | {'Recommendation':<35}")
-        print("-" * 120)
+        # Add the 'Type' column to the table
+        print(f"{'Type':<15} | {'Name':<30} | {'Resource Group':<20} | {'Current Version':<15} | {'Status':<30} | {'Recommendation':<25}")
+        print("-" * 140)
 
-        # Print the data
-        for item in app_list:
-            print(f"{item['Name']:<30} | {item['Current Runtime']:<20} | {item['Status']:<30} | {item['Recommendation']:<35}")
+        # Loop through the combined list
+        for item in combined_list:
+            print(f"{item.get('Type', 'App Service'):<15} | {item['Name']:<30} | {item['Resource Group']:<20} | {item['Current Version']:<15} | {item['Status']:<30} | {item['Recommendation']:<25}")
         
-        print("="*120)
+        print("="*140)
 
     else:
         print("\n" + "#"*80)
-        print("ALERT: Scan completed without results. (No App Services Found)")
-        print(f"The active subscription ({sub_id}) does not contain any App Service resources.")
+        print("ALERT: Scan completed with no results. (No App Services or AKS Clusters Found)")
+        print(f"The active subscription ({sub_id}) does not contain any App Services or AKS clusters.")
         print("#"*80 + "\n")
-
+        
     # *************************************************************
-    # Save the report to a CSV file
+    # Save the combined report to a CSV file
     # *************************************************************
-    save_report_to_csv(app_list)
+    # Pass the combined_list to the save function
+    save_report_to_csv(combined_list)
     
 
 
